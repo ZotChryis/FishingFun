@@ -1,4 +1,5 @@
-﻿using log4net;
+﻿using FishingFun.Configuration;
+using log4net;
 using System;
 
 namespace FishingFun
@@ -7,8 +8,33 @@ namespace FishingFun
     {
         private static ILog logger = LogManager.GetLogger("Fishbot");
 
-        public double ColourMultiplier { get; set; } = 0.5;
-        public double ColourClosenessMultiplier { get; set; } = 2.0;
+        public double ColourMultiplier { get; set; }
+        public double ColourClosenessMultiplier { get; set; }
+        public ClassifierMode Mode { get; set; }
+
+        public PixelClassifier()
+        {
+            LoadFromConfiguration();
+        }
+
+        public void LoadFromConfiguration()
+        {
+            var config = ConfigurationManager.Instance.Current.Color;
+            this.Mode = config.Mode;
+            this.ColourMultiplier = config.ColourMultiplier;
+            this.ColourClosenessMultiplier = config.ColourClosenessMultiplier;
+
+            if (config.IsWowClassic)
+            {
+                logger.Info("Wow Classic configuration");
+                this.ColourMultiplier = Constants.ClassicColourMultiplier;
+                this.ColourClosenessMultiplier = Constants.ClassicColourClosenessMultiplier;
+            }
+            else
+            {
+                logger.Info("Wow Standard configuration");
+            }
+        }
 
         public bool IsMatch(byte red, byte green, byte blue)
         {
@@ -22,20 +48,12 @@ namespace FishingFun
             }
         }
 
-        public ClassifierMode Mode { get; set; } = ClassifierMode.Red;
-
-        public void SetConfiguration(bool isWowClasic)
+        public void SetConfiguration(bool isWowClassic)
         {
-            if (isWowClasic)
-            {
-                LogManager.GetLogger("Fishbot").Info("Wow Classic configuration");
-                this.ColourMultiplier = 1;
-                this.ColourClosenessMultiplier = 1;
-            }
-            else
-            {
-                LogManager.GetLogger("Fishbot").Info("Wow Standard configuration");
-            }
+            var config = ConfigurationManager.Instance.Current;
+            config.Color.IsWowClassic = isWowClassic;
+            LoadFromConfiguration();
+            ConfigurationManager.Instance.Save();
         }
 
         private bool isBigger(byte red, byte other)

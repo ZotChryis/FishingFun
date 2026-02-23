@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Diagnostics;
+using System.Threading;
 
 namespace FishingFun
 {
@@ -33,8 +34,13 @@ namespace FishingFun
             action(this);
         }
 
-        public bool ExecuteIfDue()
+        public bool ExecuteIfDue(CancellationToken cancellationToken = default)
         {
+            if (cancellationToken.IsCancellationRequested)
+            {
+                return false;
+            }
+
             if (stopwatch.Elapsed.TotalMilliseconds > actionTimeoutMs)
             {
                 action(this);

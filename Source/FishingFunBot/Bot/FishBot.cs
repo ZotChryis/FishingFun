@@ -1,4 +1,5 @@
-﻿using log4net;
+﻿using FishingFun.Configuration;
+using log4net;
 using log4net.Appender;
 using log4net.Repository.Hierarchy;
 using System;
@@ -13,42 +14,49 @@ namespace FishingFun
     {
         public static ILog logger = LogManager.GetLogger("Fishbot");
 
+        private readonly BotConfiguration config;
         private ConsoleKey castKey;
-
         private List<ConsoleKey> macroKeys;
-        private int macroTimer;
         private DateTime StartTime = DateTime.Now;
 
         private IBobberFinder bobberFinder;
         private IBiteWatcher biteWatcher;
-        private bool isEnabled;
         private Stopwatch stopwatch = new Stopwatch();
         private static Random random = new Random();
+        private CancellationToken cancellationToken;
 
         public event EventHandler<FishingEvent> FishingEventHandler;
 
-        public FishingBot(IBobberFinder bobberFinder, IBiteWatcher biteWatcher, ConsoleKey castKey, List<ConsoleKey> macroKeys, int macroTimer)
+        public FishingBot(IBobberFinder bobberFinder, IBiteWatcher biteWatcher, BotConfiguration configuration)
         {
             this.bobberFinder = bobberFinder;
             this.biteWatcher = biteWatcher;
-            this.castKey = castKey;
-            this.macroKeys = macroKeys;
-            this.macroTimer = macroTimer;
+            this.config = configuration;
+            this.castKey = configuration.KeyBinds.CastKey;
+            this.macroKeys = new List<ConsoleKey> { configuration.KeyBinds.Macro1Key, configuration.KeyBinds.Macro2Key };
 
             logger.Info("FishBot Created.");
 
             FishingEventHandler += (s, e) => { };
         }
 
-        public void Start()
+        // Legacy constructor for backward compatibility
+        public FishingBot(IBobberFinder bobberFinder, IBiteWatcher biteWatcher, ConsoleKey castKey, List<ConsoleKey> macroKeys, int macroTimer)
+            : this(bobberFinder, biteWatcher, ConfigurationManager.Instance.Current)
         {
-            biteWatcher.FishingEventHandler = (e) => FishingEventHandler?.Invoke(this, e);
+            this.castKey = castKey;
+            this.macroKeys = macroKeys;
+            this.config.Timing.MacroInterval = macroTimer * 60 * 1000;
+        }
 
-            isEnabled = true;
+        public void Start(CancellationToken ct)
+        {
+            this.cancellationToken = ct;
+            biteWatcher.FishingEventHandler = (e) => FishingEventHandler?.Invoke(this, e);
 
             DoMacroKeys();
 
-            while (isEnabled)
+            while (!ct.IsCancellationRequested)
             {
                 try
                 {
@@ -59,9 +67,14 @@ namespace FishingFun
                     FishingEventHandler?.Invoke(this, new FishingEvent { Action = FishingAction.Cast });
                     WowProcess.PressKey(castKey);
 
-                    Watch(2000);
+                    Watch(config.Timing.CastWatchDelay, ct);
 
-                    WaitForBite();
+                    WaitForBite(ct);
+                }
+                catch (OperationCanceledException)
+                {
+                    logger.Info("Bot operation cancelled.");
+                    break;
                 }
                 catch (Exception e)
                 {
@@ -70,7 +83,13 @@ namespace FishingFun
                 }
             }
 
-            logger.Error("Bot has Stopped.");
+            logger.Info("Bot has Stopped.");
+        }
+
+        // Legacy Start method for backward compatibility
+        public void Start()
+        {
+            Start(CancellationToken.None);
         }
 
         public void SetCastKey(ConsoleKey castKey)
@@ -90,32 +109,26 @@ namespace FishingFun
 
         public void SetMacroTimer(int time)
         {
-            this.macroTimer = time;
+            this.config.Timing.MacroInterval = time * 60 * 1000;
         }
 
-        private void Watch(int milliseconds)
+        private void Watch(int milliseconds, CancellationToken ct)
         {
             bobberFinder.Reset();
             stopwatch.Reset();
             stopwatch.Start();
-            while (stopwatch.ElapsedMilliseconds < milliseconds)
+            while (stopwatch.ElapsedMilliseconds < milliseconds && !ct.IsCancellationRequested)
             {
-                bobberFinder.Find();
+                bobberFinder.Find(ct);
             }
             stopwatch.Stop();
         }
 
-        public void Stop()
-        {
-            isEnabled = false;
-            logger.Error("Bot is Stopping...");
-        }
-
-        private void WaitForBite()
+        private void WaitForBite(CancellationToken ct)
         {
             bobberFinder.Reset();
 
-            var bobberPosition = FindBobber();
+            var bobberPosition = FindBobber(ct);
             if (bobberPosition == Point.Empty)
             {
                 return;
@@ -125,12 +138,12 @@ namespace FishingFun
 
             logger.Info("Bobber start position: " + bobberPosition);
 
-            var timedTask = new TimedAction((a) => { logger.Info("Fishing timed out!"); }, 25 * 1000, 25);
+            var timedTask = new TimedAction((a) => { logger.Info("Fishing timed out!"); }, config.Timing.FishingTimeout, config.Timing.FishingTimeout / 1000);
 
             // Wait for the bobber to move
-            while (isEnabled)
+            while (!ct.IsCancellationRequested)
             {
-                var currentBobberPosition = FindBobber();
+                var currentBobberPosition = FindBobber(ct);
                 if (currentBobberPosition == Point.Empty || currentBobberPosition.X == 0) { return; }
 
                 if (this.biteWatcher.IsBite(currentBobberPosition))
@@ -140,7 +153,7 @@ namespace FishingFun
                     return;
                 }
 
-                if (!timedTask.ExecuteIfDue()) { return; }
+                if (!timedTask.ExecuteIfDue(ct)) { return; }
             }
         }
 
@@ -154,7 +167,7 @@ namespace FishingFun
             //  Use seconds to get fidelity with the slush timer.
             //  Issue #35: There was potential for the few seconds it takes to cast lure to not be waited on for second lure,
             //  causing every other lure application to fail.
-            if ((DateTime.Now - StartTime).TotalSeconds > (this.macroTimer * 60) + 10)
+            if ((DateTime.Now - StartTime).TotalMilliseconds > config.Timing.MacroInterval + (config.Timing.MacroExecutionDelay * 1000))
             {
                 DoMacroKeys();
             }
@@ -195,14 +208,15 @@ namespace FishingFun
 
         public static void Sleep(int ms)
         {
-            ms+=random.Next(0, 225);
+            var config = ConfigurationManager.Instance.Current;
+            ms += random.Next(0, config.Timing.SleepMaxRandomness);
 
             Stopwatch sw = new Stopwatch();
             sw.Start();
             while (sw.Elapsed.TotalMilliseconds < ms)
             {
                 FlushBuffers();
-                Thread.Sleep(100);
+                Thread.Sleep(Constants.DefaultSleepCheckInterval);
             }
         }
 
@@ -223,15 +237,20 @@ namespace FishingFun
             }
         }
 
-        private Point FindBobber()
+        private Point FindBobber(CancellationToken ct)
         {
-            var timer = new TimedAction((a) => { logger.Info("Waited seconds for target: " + a.ElapsedSecs); }, 1000, 5);
+            var timer = new TimedAction(
+                (a) => { logger.Info("Waited seconds for target: " + a.ElapsedSecs); },
+                config.Detection.BobberSearchInterval,
+                config.Detection.BobberSearchTimeout / 1000);
 
-            while (true)
+            while (!ct.IsCancellationRequested)
             {
-                var target = this.bobberFinder.Find();
-                if (target != Point.Empty || !timer.ExecuteIfDue()) { return target; }
+                var target = this.bobberFinder.Find(ct);
+                if (target != Point.Empty || !timer.ExecuteIfDue(ct)) { return target; }
             }
+
+            return Point.Empty;
         }
     }
 }

@@ -1,5 +1,5 @@
-﻿using System;
-using System.IO;
+﻿using FishingFun.Configuration;
+using System;
 using System.Windows;
 using System.Windows.Controls;
 
@@ -24,12 +24,9 @@ namespace FishingFun
 
     public partial class KeyBindChooser : UserControl
     {
-        private string[] KeybindTexts = new string[] { "4", "5", "6" };
         protected int StorageIndex { get; set; } = 0;
 
         public ConsoleKey CastKey { get; set; } = ConsoleKey.D4;
-
-        private static string Filename = "keybind.txt";
 
         public EventHandler CastKeyChanged;
 
@@ -45,17 +42,22 @@ namespace FishingFun
         {
             try
             {
-                if (File.Exists(Filename))
+                var config = ConfigurationManager.Instance.Current;
+
+                switch (StorageIndex)
                 {
-                    var fileContents = File.ReadAllText(Filename);
-                    var keybindChunks = fileContents.Split(';');
-                    if (keybindChunks.Length == 3)
-                    {
-                        KeybindTexts = keybindChunks;
-                    }
-                    CastKey = GetConsoleKey();
-                    KeyBind.Text = GetCastKeyText(this.CastKey);
+                    case 0:
+                        CastKey = config.KeyBinds.CastKey;
+                        break;
+                    case 1:
+                        CastKey = config.KeyBinds.Macro1Key;
+                        break;
+                    case 2:
+                        CastKey = config.KeyBinds.Macro2Key;
+                        break;
                 }
+
+                KeyBind.Text = GetCastKeyText(this.CastKey);
             }
             catch (Exception e)
             {
@@ -67,18 +69,22 @@ namespace FishingFun
 
         private void WriteConfiguration()
         {
-            KeybindTexts[StorageIndex] = ((int)CastKey).ToString();
+            var config = ConfigurationManager.Instance.Current;
 
-            string output = "";
-            for (int i = 0; i < KeybindTexts.Length; i++)
+            switch (StorageIndex)
             {
-                output += KeybindTexts[i];
-                if (i < KeybindTexts.Length - 1)
-                {
-                    output += ";";
-                }
+                case 0:
+                    config.KeyBinds.CastKey = CastKey;
+                    break;
+                case 1:
+                    config.KeyBinds.Macro1Key = CastKey;
+                    break;
+                case 2:
+                    config.KeyBinds.Macro2Key = CastKey;
+                    break;
             }
-            File.WriteAllText(Filename, output);
+
+            ConfigurationManager.Instance.Save();
         }
 
         private void CastKey_Focus(object sender, RoutedEventArgs e)
@@ -112,15 +118,6 @@ namespace FishingFun
             KeyBind.Text = "";
         }
 
-        private ConsoleKey GetConsoleKey()
-        {
-            if (this.StorageIndex < 0 || this.StorageIndex >= this.KeybindTexts.Length)
-            {
-                return ConsoleKey.D4;
-            }
-
-            return (ConsoleKey)int.Parse(this.KeybindTexts[this.StorageIndex]);
-        }
 
         private string GetCastKeyText(ConsoleKey ck)
         {

@@ -1,4 +1,5 @@
-﻿using log4net;
+﻿using FishingFun.Configuration;
+using log4net;
 using System;
 using System.Linq;
 using System.Collections.Generic;
@@ -18,7 +19,6 @@ namespace FishingFun
         private const UInt32 WM_KEYUP = 0x0101;
         private static ConsoleKey lastKey;
         private static Random random = new Random();
-        public static int LootDelay=2000;
 
 
         public static bool IsWowClassic()
@@ -98,79 +98,79 @@ namespace FishingFun
         [return: MarshalAs(UnmanagedType.Bool)]
         private static extern bool SetCursorPos(int x, int y);
 
-        public static void RightClickMouse(ILog logger, System.Drawing.Point position)
+        /// <summary>
+        /// Enumeration for mouse button selection.
+        /// </summary>
+        public enum MouseButton
         {
-            //RightClickMouse_Original(logger, position);
-            RightClickMouse_LiamCooper(logger, position);
+            Left,
+            Right
         }
 
-        public static void RightClickMouse_Original(ILog logger, System.Drawing.Point position)
+        /// <summary>
+        /// Consolidated mouse click method supporting different mouse buttons and animation options.
+        /// </summary>
+        /// <param name="logger">Logger instance for error reporting.</param>
+        /// <param name="button">The mouse button to click.</param>
+        /// <param name="position">The screen position to click at.</param>
+        /// <param name="animate">Whether to animate cursor movement to position.</param>
+        public static void ClickMouse(ILog logger, MouseButton button, System.Drawing.Point position, bool animate = true)
         {
             var activeProcess = GetActiveProcess();
             var wowProcess = WowProcess.Get();
             if (wowProcess != null)
             {
+                var config = ConfigurationManager.Instance.Current;
+                var lootDelay = config.Timing.LootDelay;
+
                 var oldPosition = System.Windows.Forms.Cursor.Position;
 
-                for (int i = 20; i > 0; i--)
-                {
-                    SetCursorPos(position.X + i, position.Y + i);
-                    Thread.Sleep(1);
-                }
-                Thread.Sleep(1000);
-
-                PostMessage(wowProcess.MainWindowHandle, Keys.WM_RBUTTONDOWN, Keys.VK_RMB, 0);
-                Thread.Sleep(30 + random.Next(0, 47));
-                PostMessage(wowProcess.MainWindowHandle, Keys.WM_RBUTTONUP, Keys.VK_RMB, 0);
-
-                RefocusOnOldScreen(logger, activeProcess, wowProcess, oldPosition);
-            }
-        }
-
-        public static void RightClickMouse()
-        {
-            var activeProcess = GetActiveProcess();
-            var wowProcess = WowProcess.Get();
-            if (wowProcess != null)
-            {
-                var oldPosition = System.Windows.Forms.Cursor.Position;
-                PostMessage(wowProcess.MainWindowHandle, Keys.WM_RBUTTONDOWN, Keys.VK_RMB, 0);
-                Thread.Sleep(30 + random.Next(0, 47));
-                PostMessage(wowProcess.MainWindowHandle, Keys.WM_RBUTTONUP, Keys.VK_RMB, 0);
-            }
-        }
-
-        public static void LeftClickMouse()
-        {
-            var activeProcess = GetActiveProcess();
-            var wowProcess = WowProcess.Get();
-            if (wowProcess != null)
-            {
-                var oldPosition = System.Windows.Forms.Cursor.Position;
-                PostMessage(wowProcess.MainWindowHandle, Keys.WM_LBUTTONDOWN, Keys.VK_RMB, 0);
-                Thread.Sleep(30 + random.Next(0, 47));
-                PostMessage(wowProcess.MainWindowHandle, Keys.WM_LBUTTONUP, Keys.VK_RMB, 0);
-            }
-        }
-
-        public static void RightClickMouse_LiamCooper(ILog logger, System.Drawing.Point position)
-        {
-            var activeProcess = GetActiveProcess();
-            var wowProcess = WowProcess.Get();
-            if (wowProcess != null)
-            {
-                mouse_event((int)MouseEventFlags.RightUp, position.X, position.Y, 0, 0);
-                var oldPosition = System.Windows.Forms.Cursor.Position;
+                // Release button first to ensure clean state
+                var upFlag = button == MouseButton.Right ? MouseEventFlags.RightUp : MouseEventFlags.LeftUp;
+                mouse_event((int)upFlag, position.X, position.Y, 0, 0);
 
                 Thread.Sleep(200);
-                System.Windows.Forms.Cursor.Position = position;
-                Thread.Sleep(LootDelay);
-                mouse_event((int)MouseEventFlags.RightDown, position.X, position.Y, 0, 0);
+
+                if (animate)
+                {
+                    System.Windows.Forms.Cursor.Position = position;
+                }
+
+                Thread.Sleep(lootDelay);
+
+                // Click the mouse button
+                var downFlag = button == MouseButton.Right ? MouseEventFlags.RightDown : MouseEventFlags.LeftDown;
+                mouse_event((int)downFlag, position.X, position.Y, 0, 0);
                 Thread.Sleep(30 + random.Next(0, 47));
-                mouse_event((int)MouseEventFlags.RightUp, position.X, position.Y, 0, 0);
+                mouse_event((int)upFlag, position.X, position.Y, 0, 0);
+
                 RefocusOnOldScreen(logger, activeProcess, wowProcess, oldPosition);
-                Thread.Sleep(LootDelay / 2);
+                Thread.Sleep(lootDelay / 2);
             }
+        }
+
+        /// <summary>
+        /// Right-clicks the mouse at the specified position (legacy method for compatibility).
+        /// </summary>
+        public static void RightClickMouse(ILog logger, System.Drawing.Point position)
+        {
+            ClickMouse(logger, MouseButton.Right, position, animate: true);
+        }
+
+        /// <summary>
+        /// Right-clicks the mouse at current position.
+        /// </summary>
+        public static void RightClickMouse()
+        {
+            ClickMouse(logger, MouseButton.Right, System.Windows.Forms.Cursor.Position, animate: false);
+        }
+
+        /// <summary>
+        /// Left-clicks the mouse at current position.
+        /// </summary>
+        public static void LeftClickMouse()
+        {
+            ClickMouse(logger, MouseButton.Left, System.Windows.Forms.Cursor.Position, animate: false);
         }
 
         private static void RefocusOnOldScreen(ILog logger, Process activeProcess, Process wowProcess, System.Drawing.Point oldPosition)

@@ -1,4 +1,6 @@
-﻿using System;
+﻿using FishingFun.Configuration;
+using FishingFun.Utilities;
+using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Linq;
@@ -10,7 +12,7 @@ namespace FishingFun
     {
         private readonly IPixelClassifier pixelClassifier;
 
-        private Bitmap ScreenCapture = new Bitmap(1, 1);
+        private Bitmap? ScreenCapture;
 
         public int FindColourValue { get; set; }
 
@@ -52,61 +54,70 @@ namespace FishingFun
 
             cmbColors.ItemsSource = typeof(System.Windows.Media.Colors).GetProperties().Where(p => new List<string> { "Red", "Blue" }.Contains(p.Name));
             cmbColors.SelectedIndex = this.pixelClassifier.Mode==PixelClassifier.ClassifierMode.Blue?0: 1;
-            LootDelay.Value = WowProcess.LootDelay;
+            LootDelay.Value = ConfigurationManager.Instance.Current.Timing.LootDelay;
+
+            // Clean up resources when window closes
+            this.Closed += (s, e) => {
+                ScreenCapture?.Dispose();
+                ScreenCapture = null;
+            };
         }
 
         private void RenderColour(bool renderMatchedArea)
         {
-            var bitmap = new System.Drawing.Bitmap(256, 256);
-
-            var points = new List<Point>();
-
-            for (var i = 0; i < 256; i++)
+            using (var bitmap = new System.Drawing.Bitmap(256, 256))
             {
-                for (var g = 0; g < 256; g++)
+                var points = new List<Point>();
+
+                for (var i = 0; i < 256; i++)
                 {
-                    var r = (byte)this.FindColourValue;
-                    var b = (byte)i;
-
-                    if (this.pixelClassifier.Mode == PixelClassifier.ClassifierMode.Blue)
+                    for (var g = 0; g < 256; g++)
                     {
-                        r = (byte)i;
-                        b = (byte)this.FindColourValue;
+                        var r = (byte)this.FindColourValue;
+                        var b = (byte)i;
+
+                        if (this.pixelClassifier.Mode == PixelClassifier.ClassifierMode.Blue)
+                        {
+                            r = (byte)i;
+                            b = (byte)this.FindColourValue;
+
+                        }
+
+                        if (pixelClassifier.IsMatch(r, (byte)g, b))
+                        {
+                            points.Add(new Point(i, g));
+                        }
+                        bitmap.SetPixel(i, g, Color.FromArgb(r, g, b));
 
                     }
-
-                    if (pixelClassifier.IsMatch(r, (byte)g, b))
-                    {
-                        points.Add(new Point(i, g));
-                    }
-                    bitmap.SetPixel(i, g, Color.FromArgb(r, g, b));
-
                 }
-            }
 
-            if (ScreenCapture == null)
-            {
-                ScreenCapture = WowScreen.GetBitmap();
-                renderMatchedArea = true;
-            }
-
-            this.ColourDisplay.Source = bitmap.ToBitmapImage();
-            this.WowScreenshot.Source = ScreenCapture.ToBitmapImage();
-
-            if (renderMatchedArea)
-            {
-                Dispatch(() =>
+                if (ScreenCapture == null)
                 {
-                    MarkEdgeOfRedArea(bitmap, points);
-                    this.ColourDisplay.Source = bitmap.ToBitmapImage();
-                });
+                    ScreenCapture = WowScreen.GetBitmap();
+                    renderMatchedArea = true;
+                }
 
-                Dispatch(() =>
+                this.ColourDisplay.Source = bitmap.ToBitmapImage();
+                this.WowScreenshot.Source = ScreenCapture.ToBitmapImage();
+
+                if (renderMatchedArea)
                 {
-                    Bitmap bmp = new Bitmap(ScreenCapture);
-                    MarkHighlightOnBitmap(bmp);
-                    this.WowScreenshot.Source = bmp.ToBitmapImage();
-                });
+                    DispatcherHelper.Dispatch(() =>
+                    {
+                        MarkEdgeOfRedArea(bitmap, points);
+                        this.ColourDisplay.Source = bitmap.ToBitmapImage();
+                    });
+
+                    DispatcherHelper.Dispatch(() =>
+                    {
+                        using (Bitmap bmp = new Bitmap(ScreenCapture))
+                        {
+                            MarkHighlightOnBitmap(bmp);
+                            this.WowScreenshot.Source = bmp.ToBitmapImage();
+                        }
+                    });
+                }
             }
         }
 
@@ -138,7 +149,9 @@ namespace FishingFun
         }
         private void LootDelay_ValueChanged(object sender, System.Windows.RoutedPropertyChangedEventArgs<double> e)
         {
-            WowProcess.LootDelay = (int)this.LootDelay.Value;
+            var config = ConfigurationManager.Instance.Current;
+            config.Timing.LootDelay = (int)this.LootDelay.Value;
+            ConfigurationManager.Instance.Save();
         }
 
         private void FindColour_ValueChanged(object sender, System.Windows.RoutedPropertyChangedEventArgs<double> e)
@@ -171,14 +184,10 @@ namespace FishingFun
 
         private void Capture_Click(object sender, System.Windows.RoutedEventArgs e)
         {
+            // Dispose previous capture before getting new one
+            ScreenCapture?.Dispose();
             ScreenCapture = WowScreen.GetBitmap();
             RenderColour(true);
-        }
-
-        private void Dispatch(Action action)
-        {
-            System.Windows.Application.Current?.Dispatcher.BeginInvoke((Action)(() => action()));
-            System.Windows.Application.Current?.Dispatcher.Invoke(System.Windows.Threading.DispatcherPriority.Background, new Action(delegate { }));
         }
 
         private void cmbColors_SelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)

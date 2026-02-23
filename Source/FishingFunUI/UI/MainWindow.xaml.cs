@@ -1,6 +1,8 @@
 ﻿#nullable enable
 namespace FishingFun
 {
+    using FishingFun.Configuration;
+    using FishingFun.Utilities;
     using log4net.Appender;
     using log4net.Core;
     using log4net.Repository.Hierarchy;
@@ -26,6 +28,7 @@ namespace FishingFun
         private bool setImageBackgroundColour = true;
         private Timer WindowSizeChangedTimer;
         private System.Threading.Thread? botThread;
+        private System.Threading.CancellationTokenSource? botCancellationTokenSource;
         private int MacroTimer = 10;
 
         public MainWindow()
@@ -51,7 +54,11 @@ namespace FishingFun
             this.WindowSizeChangedTimer = new Timer { AutoReset = false, Interval = 100 };
             this.WindowSizeChangedTimer.Elapsed += SizeChangedTimer_Elapsed;
             this.CardGrid.SizeChanged += MainWindow_SizeChanged;
-            this.Closing += (s, e) => botThread?.Abort();
+            this.Closing += (s, e) =>
+            {
+                botCancellationTokenSource?.Cancel();
+                botThread?.Join(5000); // Wait up to 5 seconds for thread to stop gracefully
+            };
 
             this.KeyChooser.CastKeyChanged += (s, e) =>
             {
@@ -81,7 +88,7 @@ namespace FishingFun
 
         private void SizeChangedTimer_Elapsed(object sender, ElapsedEventArgs e)
         {
-            this.Dispatch(() =>
+            DispatcherHelper.Dispatch(() =>
             {
                 this.flyingFishAnimation.AnimationWidth = (int)this.ActualWidth;
                 this.flyingFishAnimation.AnimationHeight = (int)this.ActualHeight;
@@ -95,7 +102,10 @@ namespace FishingFun
             });
         }
 
-        private void Stop_Click(object sender, RoutedEventArgs e) => bot?.Stop();
+        private void Stop_Click(object sender, RoutedEventArgs e)
+        {
+            botCancellationTokenSource?.Cancel();
+        }
 
         private void Settings_Click(object sender, RoutedEventArgs e) => new ColourConfiguration(this.pixelClassifier).Show();
 
@@ -107,7 +117,7 @@ namespace FishingFun
 
         private void FishingEventHandler(object sender, FishingEvent e)
         {
-            Dispatch(() =>
+            DispatcherHelper.Dispatch(() =>
             {
                 switch (e.Action)
                 {
@@ -135,7 +145,7 @@ namespace FishingFun
 
         public void DoAppend(LoggingEvent loggingEvent)
         {
-            Dispatch(() =>
+            DispatcherHelper.Dispatch(() =>
                 LogEntries.Insert(0, new LogEntry()
                 {
                     DateTime = DateTime.Now,
@@ -152,7 +162,7 @@ namespace FishingFun
 
         private void SetButtonStates(bool isBotRunning)
         {
-            Dispatch(() =>
+            DispatcherHelper.Dispatch(() =>
             {
                 this.Play.IsEnabled = isBotRunning;
                 this.Stop.IsEnabled = !this.Play.IsEnabled;
@@ -169,29 +179,41 @@ namespace FishingFun
                 System.Threading.Thread.Sleep(1500);
 
                 SetButtonStates(false);
+                botCancellationTokenSource = new System.Threading.CancellationTokenSource();
                 botThread = new System.Threading.Thread(new System.Threading.ThreadStart(this.BotThread));
                 botThread.Start();
 
                 // Hide cards after 10 minutes
                 var timer = new Timer { Interval = 1000 * 60 * 10, AutoReset = false };
-                timer.Elapsed += (s, ev) => this.Dispatch(() => this.LogFlipper.IsFlipped = this.GraphFlipper.IsFlipped = true);
+                timer.Elapsed += (s, ev) => DispatcherHelper.Dispatch(() => this.LogFlipper.IsFlipped = this.GraphFlipper.IsFlipped = true);
                 timer.Start();
             }
         }
 
         public void BotThread()
         {
-            bot = new FishingBot(bobberFinder, this.biteWatcher, KeyChooser.CastKey, new List<ConsoleKey> { Macro1KeyChooser.CastKey, Macro2KeyChooser.CastKey }, MacroTimer);
+            var config = ConfigurationManager.Instance.Current;
+            bot = new FishingBot(bobberFinder, this.biteWatcher, config);
             bot.FishingEventHandler += FishingEventHandler;
-            bot.Start();
+
+            if (botCancellationTokenSource != null)
+            {
+                bot.Start(botCancellationTokenSource.Token);
+            }
+            else
+            {
+                bot.Start();
+            }
 
             bot = null;
+            botCancellationTokenSource?.Dispose();
+            botCancellationTokenSource = null;
             SetButtonStates(true);
         }
 
         private void ImageProvider_BitmapEvent(object sender, BobberBitmapEvent e)
         {
-            Dispatch(() =>
+            DispatcherHelper.Dispatch(() =>
             {
                 SetBackgroundImageColour(e);
                 reticleDrawer.Draw(e.Bitmap, e.Point);
@@ -208,12 +230,6 @@ namespace FishingFun
                 this.setImageBackgroundColour = false;
                 this.ImageBackground.Background = e.Bitmap.GetBackgroundColourBrush();
             }
-        }
-
-        private void Dispatch(Action action)
-        {
-            Application.Current?.Dispatcher.BeginInvoke((Action)(() => action()));
-            Application.Current?.Dispatcher.Invoke(System.Windows.Threading.DispatcherPriority.Background, new Action(delegate { }));
         }
 
         private void MacroTimer_TextChanged(object sender, TextChangedEventArgs e)

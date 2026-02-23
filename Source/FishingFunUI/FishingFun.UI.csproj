@@ -114,6 +114,7 @@
     </Compile>
     <Compile Include="UI\LogClasses.cs" />
     <Compile Include="UI\ReticleDrawer.cs" />
+    <Compile Include="Utilities\DispatcherHelper.cs" />
     <Page Include="UI\ColourConfiguration.xaml">
       <SubType>Designer</SubType>
       <Generator>MSBuild:Compile</Generator>

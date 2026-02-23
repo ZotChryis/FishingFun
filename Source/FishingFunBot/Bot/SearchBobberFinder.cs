@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
 using System.Linq;
+using System.Threading;
 
 #nullable enable
 namespace FishingFun
@@ -15,8 +16,6 @@ namespace FishingFun
         private static ILog logger = LogManager.GetLogger("Fishbot");
 
         private Point previousLocation;
-
-        private Bitmap bitmap = new Bitmap(1, 1);
 
         public event EventHandler<BobberBitmapEvent> BitmapEvent;
 
@@ -31,32 +30,38 @@ namespace FishingFun
             this.previousLocation = Point.Empty;
         }
 
-        public Point Find()
+        public Point Find(CancellationToken cancellationToken = default)
         {
-            this.bitmap = WowScreen.GetBitmap();
-
-            Score? best = Score.ScorePoints(FindRedPoints());
-
-            if (previousLocation != Point.Empty && best == null)
+            if (cancellationToken.IsCancellationRequested)
             {
+                return Point.Empty;
+            }
+
+            using (var bitmap = WowScreen.GetBitmap())
+            {
+                Score? best = Score.ScorePoints(FindRedPoints(bitmap, cancellationToken));
+
+                if (previousLocation != Point.Empty && best == null)
+                {
+                    previousLocation = Point.Empty;
+                    best = Score.ScorePoints(FindRedPoints(bitmap, cancellationToken));
+                }
+
                 previousLocation = Point.Empty;
-                best = Score.ScorePoints(FindRedPoints());
+                if (best != null)
+                {
+                    previousLocation = best.point;
+                }
+
+                // Clone bitmap for event handlers - they are responsible for disposing it
+                var bitmapClone = (Bitmap)bitmap.Clone();
+                BitmapEvent?.Invoke(this, new BobberBitmapEvent { Point = new Point(previousLocation.X, previousLocation.Y), Bitmap = bitmapClone });
+
+                return previousLocation == Point.Empty ? Point.Empty : WowScreen.GetScreenPositionFromBitmapPostion(previousLocation);
             }
-
-            previousLocation = Point.Empty;
-            if (best != null)
-            {
-                previousLocation = best.point;
-            }
-
-            BitmapEvent?.Invoke(this, new BobberBitmapEvent { Point = new Point(previousLocation.X, previousLocation.Y), Bitmap = this.bitmap });
-
-            this.bitmap.Dispose();
-
-            return previousLocation == Point.Empty ? Point.Empty : WowScreen.GetScreenPositionFromBitmapPostion(previousLocation);
         }
 
-        private List<Score> FindRedPoints()
+        private List<Score> FindRedPoints(Bitmap bitmap, CancellationToken cancellationToken)
         {
             var points = new List<Score>();
 
@@ -64,20 +69,20 @@ namespace FishingFun
 
             // search around last found location
             var minX = Math.Max(hasPreviousLocation ? previousLocation.X - 40 : 0, 0);
-            var maxX = Math.Min(hasPreviousLocation ? previousLocation.X + 40 : this.bitmap.Width, this.bitmap.Width);
+            var maxX = Math.Min(hasPreviousLocation ? previousLocation.X + 40 : bitmap.Width, bitmap.Width);
             var minY = Math.Max(hasPreviousLocation ? previousLocation.Y - 40 : 0, 0);
-            var maxY = Math.Min(hasPreviousLocation ? previousLocation.Y + 40 : this.bitmap.Height, this.bitmap.Height);
+            var maxY = Math.Min(hasPreviousLocation ? previousLocation.Y + 40 : bitmap.Height, bitmap.Height);
 
             //System.Diagnostics.Debug.WriteLine($"Search from X {minX}-{maxX}, Y {minY}-{maxY}");
 
             Stopwatch sw = new Stopwatch();
             sw.Start();
 
-            for (int x = minX; x < maxX; x++)
+            for (int x = minX; x < maxX && !cancellationToken.IsCancellationRequested; x++)
             {
-                for (int y = minY; y < maxY; y++)
+                for (int y = minY; y < maxY && !cancellationToken.IsCancellationRequested; y++)
                 {
-                    ProcessPixel(points, x, y);
+                    ProcessPixel(bitmap, points, x, y);
                 }
             }
             sw.Stop();
@@ -97,16 +102,16 @@ namespace FishingFun
             return points;
         }
 
-        private void ProcessPixel(List<Score> points, int x, int y)
+        private void ProcessPixel(Bitmap bitmap, List<Score> points, int x, int y)
         {
-            var p = this.bitmap.GetPixel(x, y);
+            var p = bitmap.GetPixel(x, y);
 
             bool isMatch = this.pixelClassifier.IsMatch(p.R, p.G, p.B);
 
             if (isMatch)
             {
                 points.Add(new Score { point = new Point(x, y) });
-                this.bitmap.SetPixel(x, y, this.pixelClassifier.Mode == PixelClassifier.ClassifierMode.Blue ? Color.Blue : Color.Red);
+                bitmap.SetPixel(x, y, this.pixelClassifier.Mode == PixelClassifier.ClassifierMode.Blue ? Color.Blue : Color.Red);
             }
         }
 

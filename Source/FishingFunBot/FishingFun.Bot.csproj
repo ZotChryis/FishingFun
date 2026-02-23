@@ -39,6 +39,9 @@
     <Reference Include="log4net, Version=2.0.8.0, Culture=neutral, PublicKeyToken=669e0ddf0bb1aa2a, processorArchitecture=MSIL">
       <HintPath>..\packages\log4net.2.0.8\lib\net45-full\log4net.dll</HintPath>
     </Reference>
+    <Reference Include="Newtonsoft.Json, Version=13.0.0.0, Culture=neutral, PublicKeyToken=30ad4fe6b2a6aeed, processorArchitecture=MSIL">
+      <HintPath>..\packages\Newtonsoft.Json.13.0.3\lib\net45\Newtonsoft.Json.dll</HintPath>
+    </Reference>
     <Reference Include="System" />
     <Reference Include="System.Core" />
     <Reference Include="System.Drawing" />
@@ -51,9 +54,14 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="Bot\Audio\AudioBiteWatcher.cs" />
+    <Compile Include="Bot\Audio\CompositeBiteWatcher.cs" />
     <Compile Include="Bot\BobberColourPointFinder.cs" />
     <Compile Include="Bot\ClassifierMode.cs" />
+    <Compile Include="Bot\DetectionMethodFactory.cs" />
+    <Compile Include="Bot\FallbackBobberFinder.cs" />
     <Compile Include="Bot\FishBot.cs" />
+    <Compile Include="Bot\ML\MLBobberFinder.cs" />
     <Compile Include="Bot\Interfaces\IBiteWatcher.cs" />
     <Compile Include="Bot\Interfaces\IBobberFinder.cs" />
     <Compile Include="Bot\Interfaces\IImageProvider.cs" />
@@ -61,11 +69,26 @@
     <Compile Include="Bot\PixelClassifier.cs" />
     <Compile Include="Bot\PositionBiteWatcher.cs" />
     <Compile Include="Bot\SearchBobberFinder.cs" />
+    <Compile Include="Configuration\AudioSettings.cs" />
+    <Compile Include="Configuration\BotConfiguration.cs" />
+    <Compile Include="Configuration\ColorSettings.cs" />
+    <Compile Include="Configuration\ConfigurationManager.cs" />
+    <Compile Include="Configuration\Constants.cs" />
+    <Compile Include="Configuration\DetectionSettings.cs" />
+    <Compile Include="Configuration\KeyBindSettings.cs" />
+    <Compile Include="Configuration\MLSettings.cs" />
+    <Compile Include="Configuration\MonitorSettings.cs" />
+    <Compile Include="Configuration\StatisticsSettings.cs" />
+    <Compile Include="Configuration\TimingSettings.cs" />
+    <Compile Include="Platform\DirectWindowCapture.cs" />
     <Compile Include="Platform\Keys.cs" />
     <Compile Include="Platform\TimedAction.cs" />
     <Compile Include="Platform\WowProcess.cs" />
     <Compile Include="Platform\WowScreen.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
+    <Compile Include="Statistics\CatchRecord.cs" />
+    <Compile Include="Statistics\FishingSession.cs" />
+    <Compile Include="Statistics\StatisticsCollector.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="packages.config" />
